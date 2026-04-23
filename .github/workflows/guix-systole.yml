@@ -1,0 +1,73 @@
+name: Guix Systole
+
+# Test that guix-explicitsim composes correctly with guix-systole.
+#
+# Users building a SlicerCBM-based workflow need both channels
+# (plus Guix-SlicerCBM on top).  This workflow verifies that
+# explicitsim builds and works when the systole channel is present,
+# to catch cross-channel conflicts early.
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * 1'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+    - uses: actions/checkout@v5
+
+    # Ensure a local "main" branch exists for the file:// channel URL.
+    # On pull requests, actions/checkout creates a detached HEAD at the
+    # merge ref without a "main" branch, causing guix pull to fail.
+    - name: Create main branch for local channel
+      run: git branch -f main HEAD 2>/dev/null || true
+
+    - uses: ./.github/actions/setup-guix
+      with:
+        extra-channels: |
+          (channel
+            (name 'explicitsim)
+            (url "file:///home/runner/work/guix-explicitsim/guix-explicitsim")
+            (branch "main"))
+          (channel
+            (name 'systole)
+            (url "https://github.com/SystoleOS/guix-systole.git")
+            (branch "main"))
+
+    - name: Lint package
+      continue-on-error: true
+      run: guix lint explicitsim
+
+    - name: Build explicitsim
+      run: guix build explicitsim
+
+    - name: Smoke test explicitsim
+      run: test -x "$(guix build explicitsim)/bin/ExplicitSim/ExplicitSimRun"
+
+    - name: Collect Guix build logs
+      if: always()
+      run: |
+        mkdir -p guix-build-logs
+        for f in /var/log/guix/drvs/*/*; do
+          sudo cp "$f" guix-build-logs/ || true
+        done
+        gunzip guix-build-logs/*.gz 2>/dev/null || true
+
+    - name: Upload Guix build logs
+      if: always()
+      uses: actions/upload-artifact@v6
+      with:
+        name: guix-build-logs
+        path: guix-build-logs/
+
+    - name: Stop Guix daemon
+      if: always()
+      run: sudo pkill guix-daemon || true

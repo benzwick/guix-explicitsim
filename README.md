@@ -41,27 +41,13 @@ Lint:
 
     guix lint -L . explicitsim
 
-## Integration with guix-systole and SlicerCBM
+## Integration with SlicerCBM
 
-This channel is designed to be composed with
-[guix-systole](https://github.com/SystoleOS/guix-systole) (which packages
-3D Slicer, VTK, ITK, CTK, etc.) and, eventually, a Guix package for
-[SlicerCBM](https://github.com/SlicerCBM/SlicerCBM), so the full
-ExplicitSim + Slicer stack can be installed with Guix.
-
-Combine channels in `~/.config/guix/channels.scm`:
-
-```scheme
-(cons* (channel
-         (name 'systole)
-         (url "https://github.com/SystoleOS/guix-systole.git")
-         (branch "main"))
-       (channel
-         (name 'explicitsim)
-         (url "https://github.com/benzwick/guix-explicitsim")
-         (branch "main"))
-       %default-channels)
-```
+ExplicitSim is invoked at runtime by CBM modules in
+[SlicerCBM](https://github.com/SlicerCBM/SlicerCBM) such as `MTLEDSimulator`.
+For a full ExplicitSim + SlicerCBM + 3D Slicer stack installed via Guix, see
+the channels list in
+[Guix-SlicerCBM's README](https://github.com/SlicerCBM/Guix-SlicerCBM).
 
 ## Build notes
 

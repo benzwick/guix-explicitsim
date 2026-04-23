@@ -1,0 +1,98 @@
+name: Guix Shell
+
+# Build explicitsim from source inside a Guix development environment.
+#
+# Runs "guix shell -D explicitsim" to provide all build dependencies
+# (boost, cgal, eigen, tinyxml2, gmp, mpfr, cmake, …), then builds
+# with cmake and make. This is how a developer would build ExplicitSim
+# locally from the upstream source checkout.
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * 1'
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-latest]
+
+    steps:
+    - uses: actions/checkout@v5
+    - uses: ./.github/actions/setup-guix
+
+    - name: Lint package
+      continue-on-error: true
+      run: guix lint -L . explicitsim
+
+    # Upstream ExplicitSim lives on Bitbucket; actions/checkout only
+    # clones GitHub repos, so use a plain git clone.
+    - name: Clone ExplicitSim upstream
+      run: git clone --depth=1 https://bitbucket.org/explicitsim/explicitsim.git explicitsim-src
+
+    # Each build step runs inside "guix shell --pure -D" so that all
+    # search paths (CMAKE_PREFIX_PATH, LIBRARY_PATH, etc.) are set
+    # correctly and system paths don't interfere. The store is populated
+    # on the first invocation; subsequent calls reuse the cached profile
+    # and are fast.
+    # CMAKE_INSTALL_RPATH_USE_LINK_PATH preserves Guix store library
+    # paths in installed binaries. Without this, cmake strips rpath on
+    # install and the binary cannot find shared libraries. Guix's own
+    # cmake-build-system handles this via its fix-runpath phase, but
+    # that phase is not available when building manually in guix shell.
+    # Build the shell profile in a separate step so dependency build
+    # failures are not conflated with cmake configuration errors.
+    - name: Build shell environment
+      run: guix shell --pure -L . -D explicitsim -- true
+
+    # Match the configure flags from the Guix package (explicitsim.scm)
+    # so the guix-shell build resolves the same FindTINYXML2 / FindEigen3
+    # hard-coded /usr/local defaults.
+    - name: Configure ExplicitSim
+      run: |
+        guix shell --pure -L . -D explicitsim -- \
+          cmake -B build -S explicitsim-src \
+            -DBUILD_SHARED_LIBS=ON \
+            -DBUILD_STATIC_LIBS=OFF \
+            -DBoost_USE_STATIC_LIBS=OFF \
+            -DEXPLICITSIM_NEAREST_NEIGHBOR=CGAL \
+            -DCMAKE_CXX_FLAGS="-include cstdint" \
+            -DCMAKE_INSTALL_RPATH_USE_LINK_PATH=ON
+
+    - name: Build ExplicitSim
+      run: guix shell --pure -L . -D explicitsim -- make -C build -j$(nproc)
+
+    - name: Install ExplicitSim
+      run: guix shell --pure -L . -D explicitsim -- cmake --install build --prefix install
+
+    # Upstream CMake installs the executable at bin/ExplicitSim/ExplicitSimRun.
+    - name: Smoke test (installed)
+      run: test -x install/bin/ExplicitSim/ExplicitSimRun
+
+    - name: Collect Guix build logs
+      if: always()
+      run: |
+        mkdir -p guix-build-logs
+        for f in /var/log/guix/drvs/*/*; do
+          sudo cp "$f" guix-build-logs/ || true
+        done
+        gunzip guix-build-logs/*.gz 2>/dev/null || true
+
+    - name: Upload Guix build logs
+      if: always()
+      uses: actions/upload-artifact@v6
+      with:
+        name: guix-build-logs-${{ matrix.os }}
+        path: guix-build-logs/
+
+    - name: Stop Guix daemon
+      if: always()
+      run: sudo pkill guix-daemon || true

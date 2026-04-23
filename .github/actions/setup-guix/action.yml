@@ -1,0 +1,81 @@
+name: Setup Guix
+description: >
+  Install Guix, configure channels with mirror fallback, and restart
+  the daemon with the updated binary.
+
+inputs:
+  extra-channels:
+    description: >
+      Additional Scheme channel expressions to include after the guix
+      channel in channels.scm.
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Install Guix
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y guix
+        echo "LANG=en_US.utf8" >> $GITHUB_ENV
+
+    # Try each mirror in order until guix pull succeeds.
+    # Savannah is preferred (independent infrastructure); Codeberg is
+    # the primary host but has frequent outages.
+    # The channel introduction commit (from 2020) exists on all mirrors.
+    - name: Update Guix
+      shell: bash
+      env:
+        EXTRA_CHANNELS: ${{ inputs.extra-channels }}
+      run: |
+        mirrors=(
+          "https://git.savannah.gnu.org/git/guix.git"
+          "https://codeberg.org/guix/guix.git"
+        )
+        mkdir -p ~/.config/guix
+        pulled=false
+        for url in "${mirrors[@]}"; do
+          cat > ~/.config/guix/channels.scm << CHANEOF
+        (list (channel
+                (name 'guix)
+                (url "$url")
+                (branch "master")
+                (introduction
+                  (make-channel-introduction
+                    "9edb3f66fd807b096b48283debdcddccfea34bad"
+                    (openpgp-fingerprint
+                      "BBB0 2DDF 2CEA F6A8 0D1D  E643 A2A0 6DF2 A33A 54FA"))))
+              $EXTRA_CHANNELS)
+        CHANEOF
+          echo "::group::guix pull ($url)"
+          if guix pull; then
+            echo "::endgroup::"
+            pulled=true
+            break
+          fi
+          echo "::endgroup::"
+          echo "::warning::guix pull failed with $url"
+        done
+        if [ "$pulled" = false ]; then
+          echo "::error::All Guix mirrors failed"
+          exit 1
+        fi
+        echo "$HOME/.config/guix/current/bin" >> $GITHUB_PATH
+
+    # The apt-packaged guix-daemon spawns an old substitute handler
+    # whose GnuTLS can't connect to substitute servers (TLS errors).
+    # Restart the daemon with the just-pulled binary.
+    # Detect the build group created by the apt package (Debian uses
+    # _guixbuild, upstream uses guixbuild).
+    - name: Restart Guix daemon
+      shell: bash
+      run: |
+        if getent group _guixbuild >/dev/null; then
+          group=_guixbuild
+        else
+          group=guixbuild
+        fi
+        sudo systemctl stop guix-daemon
+        sudo $HOME/.config/guix/current/bin/guix-daemon --build-users-group="$group" &

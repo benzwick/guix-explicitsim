@@ -1,0 +1,77 @@
+name: Guix Build
+
+# Build and install explicitsim using the local package definition.
+#
+# Runs "guix build -L ." and "guix install -L ." to test the package
+# definition in this repo without publishing the channel first.
+# Use this workflow to verify package changes before pushing.
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * 1'
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-latest]
+
+    steps:
+    - uses: actions/checkout@v5
+    - uses: ./.github/actions/setup-guix
+
+    - name: Lint package
+      continue-on-error: true
+      run: guix lint -L . explicitsim
+
+    - name: Build explicitsim
+      run: guix build -L . explicitsim
+
+    # ExplicitSimRun has no --help flag; it prompts for a config file
+    # on stdin. Verify the binary exists and is executable instead.
+    - name: Smoke test explicitsim (build output)
+      run: test -x "$(guix build -L . explicitsim)/bin/ExplicitSim/ExplicitSimRun"
+
+    - name: Install explicitsim
+      run: guix install -L . explicitsim
+
+    # guix install puts binaries in ~/.guix-profile/bin. On a normal
+    # system, sourcing ~/.guix-profile/etc/profile adds it to PATH.
+    # GitHub Actions steps run non-login shells, so add it explicitly.
+    # https://guix.gnu.org/manual/en/html_node/Getting-Started.html
+    - name: Add Guix profile to PATH
+      run: echo "$HOME/.guix-profile/bin" >> $GITHUB_PATH
+
+    # Upstream CMake installs into bin/ExplicitSim/, not bin/, so
+    # ExplicitSimRun is not directly on PATH after `guix install`.
+    # Check the expected profile path instead.
+    - name: Smoke test (installed)
+      run: test -x "$HOME/.guix-profile/bin/ExplicitSim/ExplicitSimRun"
+
+    - name: Collect Guix build logs
+      if: always()
+      run: |
+        mkdir -p guix-build-logs
+        for f in /var/log/guix/drvs/*/*; do
+          sudo cp "$f" guix-build-logs/ || true
+        done
+        gunzip guix-build-logs/*.gz 2>/dev/null || true
+
+    - name: Upload Guix build logs
+      if: always()
+      uses: actions/upload-artifact@v6
+      with:
+        name: guix-build-logs-${{ matrix.os }}
+        path: guix-build-logs/
+
+    - name: Stop Guix daemon
+      if: always()
+      run: sudo pkill guix-daemon || true

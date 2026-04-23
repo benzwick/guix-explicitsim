@@ -1,0 +1,72 @@
+name: Guix Slicer
+
+# Verify that the Slicer + SlicerCBM + ExplicitSim dependency graph
+# resolves when all three channels are present.
+#
+# The full Slicer build is too large for GitHub Actions runners
+# (guix-systole disables it in CI for the same reason), so we use
+# --dry-run to validate the dependency graph without compiling.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * 1'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+    - uses: actions/checkout@v5
+
+    # Ensure a local "main" branch exists for the file:// channel URL.
+    # On manual dispatch from a non-main branch, actions/checkout may
+    # not create a local "main" branch, causing guix pull to fail.
+    - name: Create main branch for local channel
+      run: git branch -f main HEAD 2>/dev/null || true
+
+    - uses: ./.github/actions/setup-guix
+      with:
+        extra-channels: |
+          (channel
+            (name 'explicitsim)
+            (url "file:///home/runner/work/guix-explicitsim/guix-explicitsim")
+            (branch "main"))
+          (channel
+            (name 'systole)
+            (url "https://github.com/SystoleOS/guix-systole.git")
+            (branch "main"))
+          (channel
+            (name 'slicer-cbm)
+            (url "https://github.com/SlicerCBM/Guix-SlicerCBM.git")
+            (branch "main"))
+
+    - name: Dry-run build Slicer
+      run: guix build --dry-run slicer-5.10
+
+    - name: Dry-run build slicer-cbm
+      run: guix build --dry-run slicer-cbm
+
+    - name: Dry-run build explicitsim
+      run: guix build --dry-run explicitsim
+
+    - name: Collect Guix build logs
+      if: always()
+      run: |
+        mkdir -p guix-build-logs
+        for f in /var/log/guix/drvs/*/*; do
+          sudo cp "$f" guix-build-logs/ || true
+        done
+        gunzip guix-build-logs/*.gz 2>/dev/null || true
+
+    - name: Upload Guix build logs
+      if: always()
+      uses: actions/upload-artifact@v6
+      with:
+        name: guix-build-logs
+        path: guix-build-logs/
+
+    - name: Stop Guix daemon
+      if: always()
+      run: sudo pkill guix-daemon || true
