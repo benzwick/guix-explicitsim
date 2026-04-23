@@ -1,5 +1,13 @@
 # ExplicitSim Guix Channel
 
+<!-- Badges ordered by scope: local build, dev shell, published channel,
+     multi-channel composition, full Slicer integration. -->
+[![Guix Build](https://github.com/benzwick/guix-explicitsim/actions/workflows/guix-build.yml/badge.svg)](https://github.com/benzwick/guix-explicitsim/actions/workflows/guix-build.yml)
+[![Guix Shell](https://github.com/benzwick/guix-explicitsim/actions/workflows/guix-shell.yml/badge.svg)](https://github.com/benzwick/guix-explicitsim/actions/workflows/guix-shell.yml)
+[![Guix Channel](https://github.com/benzwick/guix-explicitsim/actions/workflows/guix-channel.yml/badge.svg)](https://github.com/benzwick/guix-explicitsim/actions/workflows/guix-channel.yml)
+[![Guix Systole](https://github.com/benzwick/guix-explicitsim/actions/workflows/guix-systole.yml/badge.svg)](https://github.com/benzwick/guix-explicitsim/actions/workflows/guix-systole.yml)
+[![Guix Slicer](https://github.com/benzwick/guix-explicitsim/actions/workflows/guix-slicer.yml/badge.svg)](https://github.com/benzwick/guix-explicitsim/actions/workflows/guix-slicer.yml)
+
 This [Guix channel](https://guix.gnu.org/manual/en/html_node/Channels.html)
 provides a package for
 [ExplicitSim](https://bitbucket.org/explicitsim/explicitsim), a C++ library
